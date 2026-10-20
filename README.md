@@ -29,7 +29,7 @@
 
 ### 方式一：直接运行发布产物
 
-1. 获取发布文件 `dist\StickerTodo.exe`（从仓库构建或由他人分享）。
+1. 从 [GitHub Releases](https://github.com/cccfeiyyy/sticker-todo/releases) 下载最新发布包（StickerTodo-vX.Y.Z.zip，解压后双击 StickerTodo.exe）；或从 dist\StickerTodo.exe 获取（从仓库构建或由他人分享）。
 2. 双击运行。首次启动时贴纸窗口出现在**屏幕右上区域**（工作区右侧留 48px、顶部留 96px，按 DPI 缩放）；之后会记住上次的位置、大小、折叠状态和页签。
 3. 在底部输入框输入任务，按 `Enter`（或点击「＋」按钮）添加；输入框左侧的分类按钮可给新任务选分类（默认「未分类」，也可新建分类）。
 4. 点任务左侧圆框完成任务，任务进入「已完成」页；已完成页可恢复、删除、清空。
