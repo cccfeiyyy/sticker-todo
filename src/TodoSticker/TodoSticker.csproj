@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>StickerTodo</AssemblyName>
+    <RootNamespace>TodoSticker</RootNamespace>
+    <AssemblyTitle>贴纸待办</AssemblyTitle>
+    <Product>贴纸待办</Product>
+    <Company>DSH</Company>
+    <Description>轻量桌面贴纸待办清单</Description>
+    <Copyright>Copyright © 2026</Copyright>
+    <Version>1.1.0</Version>
+    <FileVersion>1.1.0</FileVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon Condition="Exists('Assets\app.ico')">Assets\app.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms 只用于托盘图标；移除其隐式 global using，避免与 WPF 类型（Application/ContextMenu/MenuItem 等）冲突。 -->
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+    <!-- WinForms SDK 的隐式 using 列表不含 System.IO，这里补回。 -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- WPF 需要 app.manifest 中的 PerMonitorV2 声明；忽略 WinForms 的迁移建议。 -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+</Project>

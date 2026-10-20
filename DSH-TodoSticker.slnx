@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TodoSticker/TodoSticker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TodoSticker.Tests/TodoSticker.Tests.csproj" />
+  </Folder>
+</Solution>

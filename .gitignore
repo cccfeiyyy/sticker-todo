@@ -1,0 +1,22 @@
+# 构建输出
+bin/
+obj/
+dist/
+tools/artifacts/
+
+# 开发/验收过程产物（本机测试脚本、截图、日志）
+preview/
+experiments/
+
+# 用户数据与日志
+data.json
+data.json.bak
+data.json.bad-*
+*.log
+
+# IDE / 系统文件
+.vs/
+.vscode/
+*.user
+Thumbs.db
+Desktop.ini
