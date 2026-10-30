@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -21,7 +21,7 @@ namespace TodoSticker;
 /// <summary>贴纸待办主窗口：极简贴纸卡片 + 待办/已完成两页 + 拖动/折叠/托盘。</summary>
 public partial class MainWindow : Window
 {
-    private const string VersionText = "1.1.0";
+    private const string VersionText = "1.1.1";
 
     private readonly TaskStore _store;
     private readonly bool _noPin;
