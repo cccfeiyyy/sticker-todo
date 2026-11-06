@@ -21,7 +21,7 @@ namespace TodoSticker;
 /// <summary>贴纸待办主窗口：极简贴纸卡片 + 待办/已完成两页 + 拖动/折叠/托盘。</summary>
 public partial class MainWindow : Window
 {
-    private const string VersionText = "1.2.0";
+    private const string VersionText = "1.2.1";
 
     private readonly TaskStore _store;
     private readonly bool _noPin;
@@ -51,6 +51,9 @@ public partial class MainWindow : Window
     private string _completedSignature = string.Empty;
     private string _categoryChipsSignature = string.Empty;
     private DispatcherTimer? _desktopKeeperTimer;
+
+    // 行内标签菜单：菜单打开期间暂缓列表重建，避免 PlacementTarget 被销毁导致菜单漂移
+    private ContextMenu? _taskCategoryMenu;
 
     // 待办任务拖拽排序
     private TodoItem? _dragItem;
@@ -721,6 +724,13 @@ public partial class MainWindow : Window
         {
             if (_loaded && !Dispatcher.HasShutdownStarted)
             {
+                // 行内标签菜单打开时不能重建列表：行容器被替换会让 ContextMenu 失去锚点、漂到屏幕角落。
+                // 勾选状态已在菜单里直接更新，等菜单关闭后再统一刷新列表。
+                if (_taskCategoryMenu is { IsOpen: true })
+                {
+                    return;
+                }
+
                 RefreshLists();
             }
         }));
@@ -1128,8 +1138,23 @@ public partial class MainWindow : Window
         ContextMenu menu = BuildTaskCategoryMenu(item);
         menu.PlacementTarget = element;
         menu.Placement = PlacementMode.Bottom;
+        menu.Closed += OnTaskCategoryMenuClosed;
+        _taskCategoryMenu = menu;
         menu.IsOpen = true;
         e.Handled = true;
+    }
+
+    private void OnTaskCategoryMenuClosed(object? sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, _taskCategoryMenu))
+        {
+            _taskCategoryMenu = null;
+        }
+
+        if (_loaded && !Dispatcher.HasShutdownStarted)
+        {
+            RefreshLists();
+        }
     }
 
     private ContextMenu BuildTaskCategoryMenu(TodoItem item)
