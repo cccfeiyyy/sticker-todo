@@ -70,7 +70,7 @@
                     <Border Grid.Column="0"
                             Width="3"
                             CornerRadius="1.5"
-                            Background="{Binding CategoryColorHex}"
+                            Background="{Binding PrimaryColorHex}"
                             Margin="0,2,5,2" />
                     <TextBlock Grid.Column="1"
                                Text="&#xE76F;"
@@ -90,23 +90,38 @@
                               Click="PendingCheck_Click" />
                     <StackPanel Grid.Column="3" Margin="8,0,4,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Text}" Style="{StaticResource TaskTextStyle}" />
-                        <StackPanel x:Name="CategoryTag" Orientation="Horizontal" Margin="0,3,0,0" Visibility="Collapsed">
-                            <Ellipse Width="6" Height="6" Fill="{Binding CategoryColorHex}" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding CategoryName}"
-                                       FontFamily="{StaticResource UiFont}"
-                                       FontSize="9.5"
-                                       Foreground="{Binding CategoryColorHex}"
-                                       Margin="4,0,0,0"
-                                       VerticalAlignment="Center" />
-                        </StackPanel>
+                        <ItemsControl x:Name="CategoryTag"
+                                      ItemsSource="{Binding Tags}"
+                                      Margin="0,3,0,0"
+                                      Visibility="Collapsed"
+                                      Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,7,2">
+                                        <Ellipse Width="6" Height="6" Fill="{Binding ColorHex}" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontFamily="{StaticResource UiFont}"
+                                                   FontSize="9.5"
+                                                   Foreground="{Binding ColorHex}"
+                                                   Margin="4,0,0,0"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     <Button x:Name="CategoryBtn"
                             Grid.Column="4"
                             Style="{StaticResource RowIconButtonStyle}"
                             Content="&#xE8EC;"
                             AutomationProperties.AutomationId="CategoryButton"
-                            AutomationProperties.Name="修改分类"
-                            ToolTip="修改分类"
+                            AutomationProperties.Name="修改标签（可多选）"
+                            ToolTip="修改标签（可多选）"
                             Tag="{Binding}"
                             Opacity="0.4"
                             Click="CategoryButton_Click" />
@@ -126,7 +141,7 @@
                     <Setter TargetName="DeleteBtn" Property="Opacity" Value="1" />
                     <Setter TargetName="CategoryBtn" Property="Opacity" Value="1" />
                 </DataTrigger>
-                <DataTrigger Binding="{Binding HasCategory}" Value="True">
+                <DataTrigger Binding="{Binding HasTags}" Value="True">
                     <Setter TargetName="CategoryTag" Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </DataTemplate.Triggers>
@@ -147,7 +162,7 @@
                     <Border Grid.Column="0"
                             Width="3"
                             CornerRadius="1.5"
-                            Background="{Binding CategoryColorHex}"
+                            Background="{Binding PrimaryColorHex}"
                             Margin="0,2,5,2" />
                     <Grid Grid.Column="1" Width="24" Height="24" VerticalAlignment="Center">
                         <Border Width="20" Height="20"
@@ -165,15 +180,30 @@
                     </Grid>
                     <StackPanel Grid.Column="2" Margin="6,0,4,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Text}" Style="{StaticResource CompletedTextStyle}" />
-                        <StackPanel x:Name="CategoryTag" Orientation="Horizontal" Margin="0,3,0,0" Visibility="Collapsed">
-                            <Ellipse Width="6" Height="6" Fill="{Binding CategoryColorHex}" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding CategoryName}"
-                                       FontFamily="{StaticResource UiFont}"
-                                       FontSize="9.5"
-                                       Foreground="{Binding CategoryColorHex}"
-                                       Margin="4,0,0,0"
-                                       VerticalAlignment="Center" />
-                        </StackPanel>
+                        <ItemsControl x:Name="CategoryTag"
+                                      ItemsSource="{Binding Tags}"
+                                      Margin="0,3,0,0"
+                                      Visibility="Collapsed"
+                                      Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,7,2">
+                                        <Ellipse Width="6" Height="6" Fill="{Binding ColorHex}" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontFamily="{StaticResource UiFont}"
+                                                   FontSize="9.5"
+                                                   Foreground="{Binding ColorHex}"
+                                                   Margin="4,0,0,0"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     <TextBlock Grid.Column="3"
                                Text="{Binding CompletedAt, Converter={StaticResource RelativeTime}}"
@@ -184,8 +214,8 @@
                             Style="{StaticResource RowIconButtonStyle}"
                             Content="&#xE8EC;"
                             AutomationProperties.AutomationId="CompletedCategoryButton"
-                            AutomationProperties.Name="修改分类"
-                            ToolTip="修改分类"
+                            AutomationProperties.Name="修改标签（可多选）"
+                            ToolTip="修改标签（可多选）"
                             Tag="{Binding}"
                             Opacity="0.4"
                             Click="CategoryButton_Click" />
@@ -215,7 +245,7 @@
                     <Setter TargetName="DeleteBtn" Property="Opacity" Value="1" />
                     <Setter TargetName="CategoryBtn" Property="Opacity" Value="1" />
                 </DataTrigger>
-                <DataTrigger Binding="{Binding HasCategory}" Value="True">
+                <DataTrigger Binding="{Binding HasTags}" Value="True">
                     <Setter TargetName="CategoryTag" Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </DataTemplate.Triggers>
@@ -363,8 +393,8 @@
                                 Grid.Column="1"
                                 Style="{StaticResource CategoryPickerButtonStyle}"
                                 AutomationProperties.AutomationId="NewTaskCategoryButton"
-                                AutomationProperties.Name="新任务分类"
-                                ToolTip="选择新任务的分类"
+                                AutomationProperties.Name="新任务标签"
+                                ToolTip="选择新任务的标签（可多选）"
                                 Click="NewTaskCategoryButton_Click">
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse x:Name="NewTaskCategoryDot"

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TodoSticker.Models;
 
 /// <summary>窗口与界面偏好设置（持久化到 data.json 的 settings 节点）。</summary>
@@ -24,9 +26,13 @@ public sealed class AppSettings
     /// <summary>上次停留的页签："pending" / "completed"。</summary>
     public string LastTab { get; set; } = "pending";
 
-    /// <summary>当前分类筛选：null=全部，"__none__"=未分类，否则为分类 Id。</summary>
+    /// <summary>当前标签筛选：null=全部，"__none__"=未分类，否则为标签 Id。</summary>
     public string? CategoryFilter { get; set; }
 
-    /// <summary>新增任务的默认分类 Id；null=未分类。</summary>
+    /// <summary>新增任务的默认标签 Id 列表（可多选）。</summary>
+    public List<string> NewTaskCategoryIds { get; set; } = new();
+
+    /// <summary>旧版单标签字段：仅用于兼容读取旧版数据；新版保存时为空。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NewTaskCategoryId { get; set; }
 }

@@ -21,7 +21,7 @@ namespace TodoSticker;
 /// <summary>贴纸待办主窗口：极简贴纸卡片 + 待办/已完成两页 + 拖动/折叠/托盘。</summary>
 public partial class MainWindow : Window
 {
-    private const string VersionText = "1.1.1";
+    private const string VersionText = "1.2.0";
 
     private readonly TaskStore _store;
     private readonly bool _noPin;
@@ -636,14 +636,14 @@ public partial class MainWindow : Window
         List<TodoItem> completed = _store.Completed.Where(MatchesCategoryFilter).ToList();
         _visiblePending = pending;
 
-        string pendingSignature = string.Join('\u0001', pending.Select(i => i.Id + ':' + i.Text + ':' + i.SortOrder + ':' + i.CategoryId));
+        string pendingSignature = string.Join('\u0001', pending.Select(i => i.Id + ':' + i.Text + ':' + i.SortOrder + ':' + string.Join(',', i.CategoryIds)));
         if (pendingSignature != _pendingSignature)
         {
             _pendingSignature = pendingSignature;
             PendingList.ItemsSource = pending;
         }
 
-        string completedSignature = string.Join('\u0001', completed.Select(i => i.Id + ':' + i.CompletedAt?.UtcTicks + ':' + i.CategoryId));
+        string completedSignature = string.Join('\u0001', completed.Select(i => i.Id + ':' + i.CompletedAt?.UtcTicks + ':' + string.Join(',', i.CategoryIds)));
         if (completedSignature != _completedSignature)
         {
             _completedSignature = completedSignature;
@@ -666,7 +666,7 @@ public partial class MainWindow : Window
         bool filtering = !string.IsNullOrEmpty(ActiveCategoryFilter);
         string filterName = FilterDisplayName();
         PendingEmptyTitle.Text = filtering ? $"「{filterName}」下还没有待办" : "还没有待办";
-        PendingEmptyHint.Text = filtering ? "点击上方分类切换，或选择「全部」查看" : "在上方输入，按 Enter 就添加啦";
+        PendingEmptyHint.Text = filtering ? "点击上方标签切换，或选择「全部」查看" : "在上方输入，按 Enter 就添加啦";
         CompletedEmptyTitle.Text = filtering ? $"「{filterName}」下还没有已完成任务" : "还没有完成的任务";
 
         RefreshCategoryChips();
@@ -751,8 +751,7 @@ public partial class MainWindow : Window
 
     private void AddTaskFromInput()
     {
-        string? categoryId = _store.Settings.NewTaskCategoryId;
-        TodoItem? item = _store.Add(TaskInput.Text, categoryId);
+        TodoItem? item = _store.Add(TaskInput.Text, _store.Settings.NewTaskCategoryIds);
         if (item is null)
         {
             TaskInput.Focus();
@@ -882,10 +881,10 @@ public partial class MainWindow : Window
 
         if (filter == TaskStore.UncategorizedFilter)
         {
-            return item.CategoryId is null;
+            return item.CategoryIds.Count == 0;
         }
 
-        return string.Equals(item.CategoryId, filter, StringComparison.Ordinal);
+        return item.CategoryIds.Contains(filter, StringComparer.Ordinal);
     }
 
     private Brush ParseCategoryBrush(string? colorHex)
@@ -969,7 +968,7 @@ public partial class MainWindow : Window
             _ => "CategoryChip_" + filterKey,
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(chip, automationId);
-        System.Windows.Automation.AutomationProperties.SetName(chip, "分类：" + text);
+        System.Windows.Automation.AutomationProperties.SetName(chip, "标签：" + text);
         chip.Click += (_, _) => SelectCategoryFilter(filterKey);
         return chip;
     }
@@ -983,9 +982,9 @@ public partial class MainWindow : Window
         }
 
         ContextMenu menu = new();
-        MenuItem renameItem = new() { Header = "重命名分类…" };
+        MenuItem renameItem = new() { Header = "重命名标签…" };
         renameItem.Click += (_, _) => RenameCategoryFlow(category);
-        MenuItem deleteItem = new() { Header = "删除分类…" };
+        MenuItem deleteItem = new() { Header = "删除标签…" };
         deleteItem.Click += (_, _) => DeleteCategoryFlow(category);
         menu.Items.Add(renameItem);
         menu.Items.Add(deleteItem);
@@ -1020,16 +1019,19 @@ public partial class MainWindow : Window
     private void NewTaskCategoryButton_Click(object sender, RoutedEventArgs e)
     {
         ContextMenu menu = new();
+        List<(MenuItem MenuItem, string CategoryId)> categoryItems = new();
 
         MenuItem noneItem = new()
         {
             Header = "未分类",
             IsCheckable = true,
-            IsChecked = _store.Settings.NewTaskCategoryId is null,
+            IsChecked = _store.Settings.NewTaskCategoryIds.Count == 0,
+            StaysOpenOnClick = true,
         };
         noneItem.Click += (_, _) =>
         {
-            _store.UpdateSettings(s => s.NewTaskCategoryId = null);
+            _store.UpdateSettings(s => s.NewTaskCategoryIds = new List<string>());
+            SyncChecks();
             UpdateNewTaskCategoryUi();
         };
         menu.Items.Add(noneItem);
@@ -1041,40 +1043,79 @@ public partial class MainWindow : Window
             {
                 Header = category.Name,
                 IsCheckable = true,
-                IsChecked = _store.Settings.NewTaskCategoryId == categoryId,
+                IsChecked = _store.Settings.NewTaskCategoryIds.Contains(categoryId),
+                StaysOpenOnClick = true,
             };
             item.Click += (_, _) =>
             {
-                _store.UpdateSettings(s => s.NewTaskCategoryId = categoryId);
-                UpdateNewTaskCategoryUi();
+                ToggleNewTaskCategory(categoryId);
+                SyncChecks();
             };
+            categoryItems.Add((item, categoryId));
             menu.Items.Add(item);
         }
 
         menu.Items.Add(new Separator());
-        MenuItem createItem = new() { Header = "新建分类…" };
-        createItem.Click += (_, _) => AddCategoryFlow();
+        MenuItem createItem = new() { Header = "新建标签…", StaysOpenOnClick = false };
+        createItem.Click += (_, _) =>
+        {
+            menu.IsOpen = false;
+            AddCategoryFlow();
+        };
         menu.Items.Add(createItem);
+
+        void SyncChecks()
+        {
+            List<string> ids = _store.Settings.NewTaskCategoryIds ?? new List<string>();
+            noneItem.IsChecked = ids.Count == 0;
+            foreach ((MenuItem menuItem, string categoryId) in categoryItems)
+            {
+                menuItem.IsChecked = ids.Contains(categoryId);
+            }
+        }
 
         menu.PlacementTarget = NewTaskCategoryButton;
         menu.Placement = PlacementMode.Bottom;
         menu.IsOpen = true;
     }
 
+    private void ToggleNewTaskCategory(string categoryId)
+    {
+        _store.UpdateSettings(s =>
+        {
+            s.NewTaskCategoryIds ??= new List<string>();
+            if (s.NewTaskCategoryIds.Contains(categoryId))
+            {
+                s.NewTaskCategoryIds.RemoveAll(id => string.Equals(id, categoryId, StringComparison.Ordinal));
+            }
+            else
+            {
+                s.NewTaskCategoryIds.Add(categoryId);
+            }
+        });
+        UpdateNewTaskCategoryUi();
+    }
+
     private void UpdateNewTaskCategoryUi()
     {
-        Category? category = FindCategory(_store.Settings.NewTaskCategoryId);
-        if (category is null)
+        List<Category> categories = (_store.Settings.NewTaskCategoryIds ?? new List<string>())
+            .Select(FindCategory)
+            .Where(c => c is not null)
+            .Select(c => c!)
+            .ToList();
+
+        if (categories.Count == 0)
         {
             NewTaskCategoryText.Text = "未分类";
             NewTaskCategoryDot.Fill = ParseCategoryBrush("#CBD5E1");
-            NewTaskCategoryButton.ToolTip = "选择新任务的分类（当前：未分类）";
+            NewTaskCategoryButton.ToolTip = "选择新任务的标签（可多选，当前：未分类）";
             return;
         }
 
-        NewTaskCategoryText.Text = category.Name;
-        NewTaskCategoryDot.Fill = ParseCategoryBrush(category.ColorHex);
-        NewTaskCategoryButton.ToolTip = $"选择新任务的分类（当前：{category.Name}）";
+        string names = string.Join("、", categories.Select(c => c.Name));
+        NewTaskCategoryText.Text = categories.Count == 1 ? categories[0].Name : $"{categories[0].Name} +{categories.Count - 1}";
+        NewTaskCategoryDot.Fill = ParseCategoryBrush(categories[0].ColorHex);
+        NewTaskCategoryButton.ToolTip = $"选择新任务的标签（可多选，当前：{names}）";
     }
 
     private void CategoryButton_Click(object sender, RoutedEventArgs e)
@@ -1094,13 +1135,20 @@ public partial class MainWindow : Window
     private ContextMenu BuildTaskCategoryMenu(TodoItem item)
     {
         ContextMenu menu = new();
+        List<(MenuItem MenuItem, string CategoryId)> categoryItems = new();
+
         MenuItem noneItem = new()
         {
             Header = "未分类",
             IsCheckable = true,
-            IsChecked = item.CategoryId is null,
+            IsChecked = item.CategoryIds.Count == 0,
+            StaysOpenOnClick = true,
         };
-        noneItem.Click += (_, _) => _store.SetCategory(item.Id, null);
+        noneItem.Click += (_, _) =>
+        {
+            _store.SetCategories(item.Id, Array.Empty<string>());
+            SyncChecks();
+        };
         menu.Items.Add(noneItem);
 
         foreach (Category category in _store.Categories)
@@ -1110,43 +1158,102 @@ public partial class MainWindow : Window
             {
                 Header = category.Name,
                 IsCheckable = true,
-                IsChecked = string.Equals(item.CategoryId, categoryId, StringComparison.Ordinal),
+                IsChecked = item.CategoryIds.Contains(categoryId),
+                StaysOpenOnClick = true,
             };
-            itemMenu.Click += (_, _) => _store.SetCategory(item.Id, categoryId);
+            itemMenu.Click += (_, _) =>
+            {
+                ToggleTaskCategory(item.Id, categoryId);
+                SyncChecks();
+            };
+            categoryItems.Add((itemMenu, categoryId));
             menu.Items.Add(itemMenu);
         }
 
         menu.Items.Add(new Separator());
-        MenuItem createItem = new() { Header = "新建分类…" };
-        createItem.Click += (_, _) => AddCategoryFlow();
+        MenuItem createItem = new() { Header = "新建标签…", StaysOpenOnClick = false };
+        createItem.Click += (_, _) =>
+        {
+            menu.IsOpen = false;
+            Category? created = AddCategoryFlow();
+            if (created is not null)
+            {
+                List<string> ids = new(item.CategoryIds);
+                if (!ids.Contains(created.Id))
+                {
+                    ids.Add(created.Id);
+                }
+
+                _store.SetCategories(item.Id, ids);
+            }
+        };
         menu.Items.Add(createItem);
+
+        void SyncChecks()
+        {
+            noneItem.IsChecked = item.CategoryIds.Count == 0;
+            foreach ((MenuItem menuItem, string categoryId) in categoryItems)
+            {
+                menuItem.IsChecked = item.CategoryIds.Contains(categoryId);
+            }
+        }
+
         return menu;
     }
 
-    private void AddCategoryFlow()
+    private void ToggleTaskCategory(string taskId, string categoryId)
     {
-        string? name = TextPromptDialog.Show(this, "新建分类", "给分类起个名字（最多 8 个字符）", string.Empty, TaskStore.MaxCategoryNameLength);
-        if (string.IsNullOrWhiteSpace(name))
+        TodoItem? task = _store.Items.FirstOrDefault(i => string.Equals(i.Id, taskId, StringComparison.Ordinal));
+        if (task is null)
         {
             return;
+        }
+
+        List<string> ids = new(task.CategoryIds);
+        if (ids.Contains(categoryId))
+        {
+            ids.RemoveAll(id => string.Equals(id, categoryId, StringComparison.Ordinal));
+        }
+        else
+        {
+            ids.Add(categoryId);
+        }
+
+        _store.SetCategories(taskId, ids);
+    }
+
+    private Category? AddCategoryFlow()
+    {
+        string? name = TextPromptDialog.Show(this, "新建标签", "给标签起个名字（最多 8 个字符）", string.Empty, TaskStore.MaxCategoryNameLength);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
         }
 
         Category? category = _store.AddCategory(name);
         if (category is null)
         {
-            MessageBox.Show(this, "分类名重复或无效，请换一个名字。", "贴纸待办", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            MessageBox.Show(this, "标签名重复或无效，请换一个名字。", "贴纸待办", MessageBoxButton.OK, MessageBoxImage.Information);
+            return null;
         }
 
-        _store.UpdateSettings(s => s.NewTaskCategoryId = category.Id);
+        _store.UpdateSettings(s =>
+        {
+            s.NewTaskCategoryIds ??= new List<string>();
+            if (!s.NewTaskCategoryIds.Contains(category.Id))
+            {
+                s.NewTaskCategoryIds.Add(category.Id);
+            }
+        });
         _categoryChipsSignature = string.Empty;
         RefreshCategoryChips();
         UpdateNewTaskCategoryUi();
+        return category;
     }
 
     private void RenameCategoryFlow(Category category)
     {
-        string? name = TextPromptDialog.Show(this, "重命名分类", "输入新的分类名（最多 8 个字符）", category.Name, TaskStore.MaxCategoryNameLength);
+        string? name = TextPromptDialog.Show(this, "重命名标签", "输入新的标签名（最多 8 个字符）", category.Name, TaskStore.MaxCategoryNameLength);
         if (string.IsNullOrWhiteSpace(name) || name.Trim() == category.Name)
         {
             return;
@@ -1154,20 +1261,20 @@ public partial class MainWindow : Window
 
         if (!_store.RenameCategory(category.Id, name))
         {
-            MessageBox.Show(this, "重命名失败：分类名重复或无效。", "贴纸待办", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "重命名失败：标签名重复或无效。", "贴纸待办", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
     private void DeleteCategoryFlow(Category category)
     {
-        int inUse = _store.Items.Count(i => string.Equals(i.CategoryId, category.Id, StringComparison.Ordinal));
+        int inUse = _store.Items.Count(i => i.CategoryIds.Contains(category.Id, StringComparer.Ordinal));
         string message = inUse > 0
-            ? $"删除分类「{category.Name}」？\n该分类下的 {inUse} 个任务会变成“未分类”。"
-            : $"删除分类「{category.Name}」？";
+            ? $"删除标签「{category.Name}」？\n有 {inUse} 个任务使用了该标签，删除后会从这些任务上移除。"
+            : $"删除标签「{category.Name}」？";
         MessageBoxResult result = MessageBox.Show(
             this,
             message,
-            "删除分类",
+            "删除标签",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);
@@ -1617,7 +1724,7 @@ public partial class MainWindow : Window
             "一个轻量的桌面待办清单：像贴纸一样粘在桌面上，不置顶、不挡路。\n\n" +
             "• Enter 添加任务，完成的任务会进入「已完成」页\n" +
             "• 右上角 ⌄ 按钮折叠 / 展开；标题栏按住可拖动窗口\n" +
-            "• 顶部分类胶囊筛选；任务行右侧标签按钮可修改分类\n" +
+            "• 顶部标签胶囊筛选；任务行右侧标签按钮可给任务打多个标签\n" +
             "• 按住任务行拖动可调整待办顺序\n" +
             "• 右下角拖动调整窗口大小；托盘图标：显示/隐藏、开机自启、退出\n\n" +
             $"数据目录：{_store.DataDirectory}",

@@ -170,8 +170,8 @@ public sealed class TaskStore
         }
     }
 
-    /// <summary>新增任务；内容为空返回 null（不入列表）。可选指定分类 Id。</summary>
-    public TodoItem? Add(string? text, string? categoryId = null)
+    /// <summary>新增任务；内容为空返回 null（不入列表）。可同时指定多个标签 Id。</summary>
+    public TodoItem? Add(string? text, IEnumerable<string>? categoryIds = null)
     {
         string? cleaned = CleanText(text);
         if (cleaned is null)
@@ -192,14 +192,8 @@ public sealed class TaskStore
             {
                 Text = cleaned,
                 SortOrder = minOrder - 1,
+                CategoryIds = NormalizeCategorySelection(categoryIds),
             };
-
-            if (!string.IsNullOrWhiteSpace(categoryId)
-                && _state.Categories is not null
-                && _state.Categories.Any(c => c.Id == categoryId))
-            {
-                item.CategoryId = categoryId;
-            }
 
             _state.Items.Add(item);
             RefreshCategoryDisplay(_state);
@@ -297,8 +291,8 @@ public sealed class TaskStore
         return removed;
     }
 
-    /// <summary>设置任务分类；categoryId 为 null/空 表示未分类。</summary>
-    public bool SetCategory(string? id, string? categoryId)
+    /// <summary>设置任务标签列表；传空表示未分类。返回是否发生变化。</summary>
+    public bool SetCategories(string? id, IEnumerable<string>? categoryIds)
     {
         bool changed = false;
         lock (_gate)
@@ -309,20 +303,10 @@ public sealed class TaskStore
                 return false;
             }
 
-            string? normalized = null;
-            if (!string.IsNullOrWhiteSpace(categoryId))
+            List<string> normalized = NormalizeCategorySelection(categoryIds);
+            if (!item.CategoryIds.SequenceEqual(normalized, StringComparer.Ordinal))
             {
-                if (_state.Categories is null || !_state.Categories.Any(c => c.Id == categoryId))
-                {
-                    return false;
-                }
-
-                normalized = categoryId;
-            }
-
-            if (!string.Equals(item.CategoryId, normalized, StringComparison.Ordinal))
-            {
-                item.CategoryId = normalized;
+                item.CategoryIds = normalized;
                 RefreshCategoryDisplay(_state);
                 changed = true;
             }
@@ -334,6 +318,27 @@ public sealed class TaskStore
         }
 
         return changed;
+    }
+
+    /// <summary>规整标签 Id 列表：去重、去空、过滤不存在的分类，并保持传入顺序。</summary>
+    private List<string> NormalizeCategorySelection(IEnumerable<string>? categoryIds)
+    {
+        List<string> result = new();
+        if (categoryIds is null || _state.Categories is null)
+        {
+            return result;
+        }
+
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (string? id in categoryIds)
+        {
+            if (!string.IsNullOrWhiteSpace(id) && seen.Add(id) && _state.Categories.Any(c => c.Id == id))
+            {
+                result.Add(id);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>新增自定义分类；名称为空或重名返回 null。</summary>
@@ -388,17 +393,16 @@ public sealed class TaskStore
             affected = 0;
             foreach (TodoItem item in _state.Items)
             {
-                if (string.Equals(item.CategoryId, id, StringComparison.Ordinal))
+                int removed = item.CategoryIds.RemoveAll(c => string.Equals(c, id, StringComparison.Ordinal));
+                if (removed > 0)
                 {
-                    item.CategoryId = null;
                     affected++;
                 }
             }
 
-            if (string.Equals(_state.Settings.NewTaskCategoryId, id, StringComparison.Ordinal))
-            {
-                _state.Settings.NewTaskCategoryId = null;
-            }
+            _state.Settings.NewTaskCategoryIds ??= new List<string>();
+            _state.Settings.NewTaskCategoryIds.RemoveAll(c => string.Equals(c, id, StringComparison.Ordinal));
+            _state.Settings.NewTaskCategoryId = null;
 
             if (string.Equals(_state.Settings.CategoryFilter, id, StringComparison.Ordinal))
             {
@@ -731,14 +735,30 @@ public sealed class TaskStore
             settings.CategoryFilter = null;
         }
 
-        if (string.IsNullOrWhiteSpace(settings.NewTaskCategoryId))
+        List<string> newTaskCategoryIds = new();
+        HashSet<string> seenNewTaskCategoryIds = new(StringComparer.Ordinal);
+        if (settings.NewTaskCategoryIds is not null)
         {
-            settings.NewTaskCategoryId = null;
+            foreach (string? categoryId in settings.NewTaskCategoryIds)
+            {
+                if (!string.IsNullOrWhiteSpace(categoryId)
+                    && seenNewTaskCategoryIds.Add(categoryId)
+                    && categories.Any(c => c.Id == categoryId))
+                {
+                    newTaskCategoryIds.Add(categoryId);
+                }
+            }
         }
-        else if (!categories.Any(c => c.Id == settings.NewTaskCategoryId))
+
+        if (!string.IsNullOrWhiteSpace(settings.NewTaskCategoryId)
+            && seenNewTaskCategoryIds.Add(settings.NewTaskCategoryId)
+            && categories.Any(c => c.Id == settings.NewTaskCategoryId))
         {
-            settings.NewTaskCategoryId = null;
+            newTaskCategoryIds.Add(settings.NewTaskCategoryId);
         }
+
+        settings.NewTaskCategoryIds = newTaskCategoryIds;
+        settings.NewTaskCategoryId = null;
 
         List<TodoItem> items = new(state.Items.Count);
         HashSet<string> seenIds = new(StringComparer.Ordinal);
@@ -772,6 +792,32 @@ public sealed class TaskStore
             }
 
             item.Text = text;
+
+            // 合并新版多标签字段与旧版单分类字段（旧数据自动升级）。
+            List<string> articleCategoryIds = new();
+            HashSet<string> seenItemCategoryIds = new(StringComparer.Ordinal);
+            if (item.CategoryIds is not null)
+            {
+                foreach (string? categoryId in item.CategoryIds)
+                {
+                    if (!string.IsNullOrWhiteSpace(categoryId)
+                        && seenItemCategoryIds.Add(categoryId)
+                        && categories.Any(c => c.Id == categoryId))
+                    {
+                        articleCategoryIds.Add(categoryId);
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.CategoryId)
+                && seenItemCategoryIds.Add(item.CategoryId)
+                && categories.Any(c => c.Id == item.CategoryId))
+            {
+                articleCategoryIds.Insert(0, item.CategoryId);
+            }
+
+            item.CategoryIds = articleCategoryIds;
+            item.CategoryId = null;
             items.Add(item);
         }
 
@@ -830,20 +876,35 @@ public sealed class TaskStore
 
         foreach (TodoItem item in state.Items)
         {
-            if (!string.IsNullOrWhiteSpace(item.CategoryId)
-                && map.TryGetValue(item.CategoryId, out Category? category))
+            List<string> validIds = new();
+            List<TaskTag> tags = new();
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            if (item.CategoryIds is not null)
             {
-                item.CategoryName = category.Name;
-                item.CategoryColorHex = category.ColorHex;
-                item.HasCategory = true;
+                foreach (string? categoryId in item.CategoryIds)
+                {
+                    if (string.IsNullOrWhiteSpace(categoryId) || !seen.Add(categoryId))
+                    {
+                        continue;
+                    }
+
+                    if (map.TryGetValue(categoryId, out Category? category))
+                    {
+                        validIds.Add(categoryId);
+                        tags.Add(new TaskTag
+                        {
+                            Id = category.Id,
+                            Name = category.Name,
+                            ColorHex = category.ColorHex,
+                        });
+                    }
+                }
             }
-            else
-            {
-                item.CategoryId = null;
-                item.CategoryName = string.Empty;
-                item.CategoryColorHex = "#E2E8F0";
-                item.HasCategory = false;
-            }
+
+            item.CategoryIds = validIds;
+            item.CategoryId = null;
+            item.Tags = tags;
+            item.PrimaryColorHex = tags.Count > 0 ? tags[0].ColorHex : "#E2E8F0";
         }
     }
 

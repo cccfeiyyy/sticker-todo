@@ -1,4 +1,4 @@
-﻿// 贴纸待办 · 无第三方依赖的控制台测试工程
+// 贴纸待办 · 无第三方依赖的控制台测试工程
 // 覆盖 TaskStore（增删改查 / JSON 持久化 / 损坏恢复 / 设置）与 AutoStart（临时注册表值名）。
 // 运行：dotnet run -c Release --project tests/TodoSticker.Tests
 // 退出码：0 = 全部通过；1 = 存在失败。
@@ -55,10 +55,12 @@ internal static class Program
             ("TaskStore.Changed 事件在数据/设置变化后触发", TaskStore_ChangedEvent),
             ("TaskStore.DataFilePath 与原子写 data.json.bak", TaskStore_DataFileAndAtomicWrite),
             ("TaskStore 默认数据目录 = %APPDATA%\\StickerTodo", TaskStore_DefaultDataDirectoryIsAppData),
-            ("TaskStore 分类：旧版 JSON 自动补预置分类（工作/生活/学习）", TaskStore_LegacyJsonSeedsCategories),
-            ("TaskStore 分类：新增 / 重命名 / 删除，删除后任务变未分类", TaskStore_CategoryCrud),
+            ("TaskStore 标签：旧版 JSON 自动补预置标签（工作/生活/学习）", TaskStore_LegacyJsonSeedsCategories),
+            ("TaskStore 标签：旧版单分类 categoryId 自动迁移到 categoryIds", TaskStore_LegacyCategoryIdMigrates),
+            ("TaskStore 标签：新增 / 重命名 / 删除，删除后从任务移除标签", TaskStore_CategoryCrud),
+            ("TaskStore 标签：一个任务可同时打多个标签，持久化并正确去重", TaskStore_MultiTagTasks),
             ("TaskStore 排序：拖拽顺序持久化（ApplyPendingOrder）", TaskStore_ReorderPending),
-            ("TaskStore 分类与排序：新任务默认分类 / 筛选设置持久化", TaskStore_CategorySettingsPersist),
+            ("TaskStore 标签与排序：新任务默认标签 / 筛选设置持久化", TaskStore_CategorySettingsPersist),
             ("AutoStart：临时值名 Enable / IsEnabled / Disable（含清理）", AutoStart_TemporaryValueName),
         };
 
@@ -458,8 +460,8 @@ internal static class Program
         AssertEqual("生活", store.Categories[1].Name, "预置分类[1] 应为 生活");
         AssertEqual("学习", store.Categories[2].Name, "预置分类[2] 应为 学习");
         AssertEqual(1, store.Items.Count, "旧版任务应正常加载");
-        AssertNull(store.Items[0].CategoryId, "旧版任务应默认未分类");
-        AssertTrue(!store.Items[0].HasCategory, "旧版任务 HasCategory 应为 false");
+        AssertEqual(0, store.Items[0].CategoryIds.Count, "旧版任务应默认未分类（无标签）");
+        AssertTrue(!store.Items[0].HasTags, "旧版任务 HasTags 应为 false");
 
         store.SaveNow();
         string json = File.ReadAllText(dataFile, Encoding.UTF8);
@@ -482,23 +484,97 @@ internal static class Program
         AssertNull(store.AddCategory("健身"), "重名分类应返回 null");
         AssertNull(store.AddCategory("   "), "空分类名应返回 null");
 
-        AssertTrue(store.SetCategory(item!.Id, fitness!.Id), "SetCategory 应成功");
+        AssertTrue(store.SetCategories(item!.Id, new[] { fitness!.Id }), "SetCategories 应成功");
         TodoItem withCategory = FindItem(store, item.Id);
-        AssertEqual(fitness.Id, withCategory.CategoryId, "任务分类 Id 应更新");
-        AssertTrue(withCategory.HasCategory, "任务 HasCategory 应为 true");
-        AssertEqual("健身", withCategory.CategoryName, "任务应显示分类名 健身");
-        AssertTrue(!store.SetCategory(item.Id, "不存在的分类"), "设置不存在的分类应返回 false");
+        AssertEqual(1, withCategory.CategoryIds.Count, "任务应有 1 个标签");
+        AssertEqual(fitness.Id, withCategory.CategoryIds[0], "任务标签 Id 应更新");
+        AssertTrue(withCategory.HasTags, "任务 HasTags 应为 true");
+        AssertEqual("健身", withCategory.Tags[0].Name, "任务应显示标签名 健身");
+
+        AssertTrue(store.SetCategories(item.Id, new[] { "不存在的分类" }), "设置不存在的标签仍会应用（过滤后为空）");
+        AssertEqual(0, FindItem(store, item.Id).CategoryIds.Count, "不存在的标签应被过滤，任务变为未分类");
+        AssertTrue(store.SetCategories(item.Id, new[] { fitness.Id }), "重新设置有效标签应成功");
 
         AssertTrue(store.RenameCategory(fitness.Id, "运动"), "RenameCategory 应成功");
-        AssertEqual("运动", FindItem(store, item.Id).CategoryName, "重命名后任务显示名应更新");
+        AssertEqual("运动", FindItem(store, item.Id).Tags[0].Name, "重命名后任务标签名应更新");
         AssertTrue(!store.RenameCategory(fitness.Id, "工作"), "重命名为已有分类应返回 false");
 
         int affected = store.DeleteCategory(fitness.Id);
-        AssertEqual(1, affected, "删除分类应影响 1 条任务");
+        AssertEqual(1, affected, "删除标签应影响 1 条任务");
         AssertEqual(3, store.Categories.Count, "删除后分类数应回到 3");
         TodoItem unclassified = FindItem(store, item.Id);
-        AssertNull(unclassified.CategoryId, "删除分类后任务应变为未分类");
-        AssertTrue(!unclassified.HasCategory, "删除分类后 HasCategory 应为 false");
+        AssertEqual(0, unclassified.CategoryIds.Count, "删除标签后任务应变为未分类");
+        AssertTrue(!unclassified.HasTags, "删除标签后 HasTags 应为 false");
+    }
+
+    private static void TaskStore_LegacyCategoryIdMigrates()
+    {
+        string dir = NewDataDir();
+        string dataFile = Path.Combine(dir, "data.json");
+        string legacyJson = """
+        {
+          "version": 2,
+          "categories": [
+            { "id": "work", "name": "工作", "colorHex": "#3D7EFF" },
+            { "id": "life", "name": "生活", "colorHex": "#22C55E" }
+          ],
+          "items": [
+            { "id": "legacy1", "text": "旧版单分类任务", "createdAt": "2026-01-01T08:00:00+08:00", "completedAt": null, "categoryId": "work" }
+          ],
+          "settings": { "newTaskCategoryId": "life" }
+        }
+        """;
+        File.WriteAllText(dataFile, legacyJson, new UTF8Encoding(false));
+
+        var store = new TaskStore(dir);
+        AssertEqual(1, store.Items.Count, "旧版任务应加载");
+        TodoItem item = store.Items[0];
+        AssertEqual(1, item.CategoryIds.Count, "旧版 categoryId 应迁移为 1 个标签");
+        AssertEqual("work", item.CategoryIds[0], "迁移后的标签应为 work");
+        AssertEqual("工作", item.Tags[0].Name, "迁移后应显示标签名 工作");
+        AssertNull(item.CategoryId, "迁移后旧字段应清空");
+        AssertEqual(1, store.Settings.NewTaskCategoryIds.Count, "旧版新任务默认分类应迁移为列表");
+        AssertEqual("life", store.Settings.NewTaskCategoryIds[0], "迁移后默认标签应为 life");
+        AssertNull(store.Settings.NewTaskCategoryId, "迁移后旧设置字段应清空");
+
+        store.SaveNow();
+        string json = File.ReadAllText(dataFile, Encoding.UTF8);
+        AssertContains(json, "\"categoryIds\"", "保存后 JSON 应使用 categoryIds 字段");
+        AssertContains(json, "\"newTaskCategoryIds\"", "保存后 JSON 应使用 newTaskCategoryIds 字段");
+    }
+
+    private static void TaskStore_MultiTagTasks()
+    {
+        string dir = NewDataDir();
+        var store = new TaskStore(dir);
+        Category work = store.Categories.First(c => c.Id == "work");
+        Category study = store.Categories.First(c => c.Id == "study");
+
+        TodoItem? item = store.Add("多标签任务", new[] { work.Id, study.Id });
+        AssertNotNull(item, "多标签任务应添加成功");
+        AssertEqual(2, item!.CategoryIds.Count, "任务应有两个标签");
+        AssertEqual(2, item.Tags.Count, "任务应显示两个标签");
+        AssertEqual("工作", item.Tags[0].Name, "第一个标签应为 工作");
+        AssertEqual("学习", item.Tags[1].Name, "第二个标签应为 学习");
+        AssertEqual("#3D7EFF", item.PrimaryColorHex, "主颜色应为第一个标签的颜色");
+
+        // 去重与顺序：重复 Id 只保留一个；显式重排
+        AssertTrue(store.SetCategories(item.Id, new[] { study.Id, study.Id, work.Id }), "SetCategories 应成功");
+        TodoItem reordered = FindItem(store, item.Id);
+        AssertEqual(2, reordered.CategoryIds.Count, "重复标签应去重");
+        AssertEqual("study", reordered.CategoryIds[0], "重排后第一个标签应为 study");
+        AssertEqual("学习", reordered.Tags[0].Name, "重排后显示的第一个标签应为 学习");
+
+        var reloaded = new TaskStore(dir);
+        TodoItem persisted = FindItem(reloaded, item.Id);
+        AssertEqual(2, persisted.CategoryIds.Count, "重新加载后应保留两个标签");
+        AssertEqual("study", persisted.CategoryIds[0], "重新加载后标签顺序应保持");
+
+        int affected = reloaded.DeleteCategory(study.Id);
+        AssertEqual(1, affected, "删除 study 标签应影响 1 条任务");
+        TodoItem afterDelete = FindItem(reloaded, item.Id);
+        AssertEqual(1, afterDelete.CategoryIds.Count, "删除一个标签后应只剩 1 个");
+        AssertEqual("work", afterDelete.CategoryIds[0], "剩余标签应为 work");
     }
 
     private static void TaskStore_ReorderPending()
@@ -540,28 +616,30 @@ internal static class Program
     {
         string dir = NewDataDir();
         var store = new TaskStore(dir);
-        AssertNull(store.Settings.CategoryFilter, "默认分类筛选应为 null（全部）");
-        AssertNull(store.Settings.NewTaskCategoryId, "默认新任务分类应为 null（未分类）");
+        AssertNull(store.Settings.CategoryFilter, "默认标签筛选应为 null（全部）");
+        AssertEqual(0, store.Settings.NewTaskCategoryIds.Count, "默认新任务标签应为空（未分类）");
 
         Category work = store.Categories.First(c => c.Id == "work");
-        TodoItem? item = store.Add("带分类的任务", work.Id);
-        AssertNotNull(item, "带分类任务应添加成功");
-        AssertEqual(work.Id, item!.CategoryId, "新任务应带上指定分类");
-        AssertEqual("工作", item.CategoryName, "新任务应显示分类名 工作");
+        TodoItem? item = store.Add("带标签的任务", new[] { work.Id });
+        AssertNotNull(item, "带标签任务应添加成功");
+        AssertEqual(1, item!.CategoryIds.Count, "新任务应带上指定标签");
+        AssertEqual(work.Id, item.CategoryIds[0], "新任务标签 Id 应为 work");
+        AssertEqual("工作", item.Tags[0].Name, "新任务应显示标签名 工作");
 
         store.UpdateSettings(s =>
         {
             s.CategoryFilter = work.Id;
-            s.NewTaskCategoryId = work.Id;
+            s.NewTaskCategoryIds = new List<string> { work.Id };
         });
 
         var reloaded = new TaskStore(dir);
-        AssertEqual(work.Id, reloaded.Settings.CategoryFilter, "分类筛选应持久化");
-        AssertEqual(work.Id, reloaded.Settings.NewTaskCategoryId, "新任务默认分类应持久化");
+        AssertEqual(work.Id, reloaded.Settings.CategoryFilter, "标签筛选应持久化");
+        AssertEqual(1, reloaded.Settings.NewTaskCategoryIds.Count, "新任务默认标签应持久化");
+        AssertEqual(work.Id, reloaded.Settings.NewTaskCategoryIds[0], "新任务默认标签 Id 应保存");
 
         reloaded.DeleteCategory(work.Id);
-        AssertNull(reloaded.Settings.NewTaskCategoryId, "删除分类后新任务默认分类应清空");
-        AssertNull(reloaded.Settings.CategoryFilter, "删除当前筛选分类后筛选应回到全部");
+        AssertEqual(0, reloaded.Settings.NewTaskCategoryIds.Count, "删除标签后新任务默认标签应清空");
+        AssertNull(reloaded.Settings.CategoryFilter, "删除当前筛选标签后筛选应回到全部");
     }
 
     private static void AutoStart_TemporaryValueName()
